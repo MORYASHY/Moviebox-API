@@ -1,4 +1,3 @@
-import re
 import json
 import cloudscraper
 from fastapi import FastAPI, HTTPException, Query
@@ -7,8 +6,8 @@ from fastapi.responses import HTMLResponse
 
 app = FastAPI(
     title="MovieBox API Pro",
-    description="Full Pure REST API for moviebox.ph — Cloudflare Bypass Enabled",
-    version="2.1.6"
+    description="Full Pure REST API for moviebox.ph with Token Authentication",
+    version="2.1.7"
 )
 
 app.add_middleware(
@@ -19,42 +18,54 @@ app.add_middleware(
 )
 
 API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
-
-# إنشاء كائن الـ scraper
 scraper = cloudscraper.create_scraper()
 
-DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-    "Referer": "https://moviebox.ph/",
-    "Origin": "https://moviebox.ph",
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-}
+def _get_token() -> str:
+    """جلب التوكن اللازم للعمليات"""
+    try:
+        resp = scraper.get(f"{API_BASE}/home?host=moviebox.ph")
+        x_user = resp.headers.get("x-user")
+        if x_user:
+            return json.loads(x_user).get("token", "")
+        return ""
+    except:
+        return ""
 
 def _make_request(url: str, method: str = "GET", payload: dict = None) -> dict:
-    """إجراء الطلبات باستخدام cloudscraper لتجاوز حماية Cloudflare"""
+    """إجراء طلب مع إضافة الـ Token والـ Headers الضرورية"""
+    token = _get_token()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        "Origin": "https://moviebox.ph",
+        "Referer": "https://moviebox.ph/",
+        "Authorization": f"Bearer {token}"
+    }
+
     try:
         if method == "POST":
-            resp = scraper.post(url, json=payload, headers=DEFAULT_HEADERS)
+            resp = scraper.post(url, json=payload, headers=headers)
         else:
-            resp = scraper.get(url, headers=DEFAULT_HEADERS)
-
+            resp = scraper.get(url, headers=headers)
+        
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Upstream API error: {resp.status_code}")
-
+        
         return resp.json()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Request failed: {str(e)}")
 
-# ملاحظة: تم تعديل المسار والمعاملات لتطابق الموقع الأصلي كما طلبت
-@app.post("/searchResult")
+@app.get("/", response_class=HTMLResponse)
+async def dashboard():
+    return "<h1>MovieBox API is Running with Token Auth</h1>"
+
+# تم تعديل المسار هنا إلى GET ليعمل من المتصفح مباشرة
+@app.get("/searchResult")
 async def search_result(keyword: str = Query(..., min_length=1), page: int = 1):
     url = f"{API_BASE}/subject/search"
     data = _make_request(url, method="POST", payload={"keyword": keyword, "page": page, "perPage": 20})
     return data
 
-# باقي المسارات (home, detail, stream) يجب تعديلها لتستخدم دالة _make_request الجديدة بدون await
-# مثال لمسار home:
 @app.get("/home")
 def get_home():
     url = f"{API_BASE}/home?host=moviebox.ph"
