@@ -24,7 +24,6 @@ API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
 
 _bearer_token: str | None = None
 
-# تحديث الـ Headers لتكون أكثر محاكاة للمتصفح الحقيقي
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
     "Referer": "https://moviebox.ph/",
@@ -40,21 +39,6 @@ DEFAULT_HEADERS = {
     "sec-fetch-dest": "empty",
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "cross-site",
-}
-
-PLAYER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "X-Client-Info": '{"timezone":"Asia/Riyadh"}',
-    "sec-ch-ua": '"Chromium";v="127", "Not A)Brand";v="99"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
 }
 
 async def _get_bearer_token() -> str:
@@ -78,7 +62,6 @@ async def _get_bearer_token() -> str:
 
 async def _make_request(url: str, method: str = "GET", payload: dict = None, custom_headers: dict = None) -> dict:
     global _bearer_token
-    # إضافة تأخير طفيف جداً لتجنب الحظر السريع
     await asyncio.sleep(0.5) 
     
     token = await _get_bearer_token()
@@ -115,18 +98,12 @@ async def _make_request(url: str, method: str = "GET", payload: dict = None, cus
 async def dashboard():
     return "<h1>MovieBox Pro API is Running</h1>"
 
-@app.get("/home")
-async def get_home():
-    url = f"{API_BASE}/home?host=moviebox.ph"
-    data = await _make_request(url)
-    return data
-
-@app.get("/search")
-async def search(q: str = Query(..., min_length=1), page: int = 1):
+@app.get("/searchResult")
+async def search_result(keyword: str = Query(..., min_length=1), page: int = 1):
     url = f"{API_BASE}/subject/search"
-    # إضافة تأخير أكبر قليلاً للبحث
     await asyncio.sleep(0.8)
-    data = await _make_request(url, method="POST", payload={"keyword": q, "page": page, "perPage": 20})
+    # استخدام المعامل keyword بدلاً من q لمطابقة طلبات الموقع الأصلي[span_1](start_span)[span_1](end_span)
+    data = await _make_request(url, method="POST", payload={"keyword": keyword, "page": page, "perPage": 20})
     return data
 
 if __name__ == "__main__":
