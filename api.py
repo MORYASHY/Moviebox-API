@@ -1,13 +1,15 @@
 import json
+import time
 import cloudscraper
+from fake_useragent import UserAgent
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 app = FastAPI(
     title="MovieBox API Pro",
-    description="Full Pure REST API for moviebox.ph with Smart Auth",
-    version="2.1.8"
+    description="Full Pure REST API for moviebox.ph with Advanced Bypass",
+    version="2.1.9"
 )
 
 app.add_middleware(
@@ -19,46 +21,39 @@ app.add_middleware(
 
 API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
 scraper = cloudscraper.create_scraper()
+ua = UserAgent()
 
-def _get_token() -> str:
-    """جلب التوكن اللازم للعمليات"""
-    try:
-        resp = scraper.get(f"{API_BASE}/home?host=moviebox.ph")
-        x_user = resp.headers.get("x-user")
-        if x_user:
-            return json.loads(x_user).get("token", "")
-        return ""
-    except:
-        return ""
-
-def _make_request(url: str, method: str = "POST", payload: dict = None) -> dict:
-    """إجراء طلب مع معالجة ذكية للتوكن ومحاولة ثانية عند فشل الطلب"""
-    token = _get_token()
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+def _get_headers():
+    """توليد ترويسات عشوائية لكل طلب"""
+    return {
+        "User-Agent": ua.random,
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}",
         "Origin": "https://moviebox.ph",
         "Referer": "https://moviebox.ph/"
     }
 
-    try:
-        # المحاولة الأولى
-        if method == "POST":
-            resp = scraper.post(url, json=payload, headers=headers)
-        else:
-            resp = scraper.get(url, headers=headers)
-        
-        # إذا فشل الطلب (400)، نحاول مرة أخرى بتوكن جديد
-        if resp.status_code == 400:
-            new_token = _get_token()
-            headers["Authorization"] = f"Bearer {new_token}"
-            if method == "POST":
-                resp = scraper.post(url, json=payload, headers=headers)
-            else:
-                resp = scraper.get(url, headers=headers)
+def _make_request(url: str, method: str = "POST", payload: dict = None) -> dict:
+    """إجراء الطلب مع تأخير، كوكيز، وتغيير دوري للـ User-Agent"""
+    # 1. التأخير لتجنب الحظر
+    time.sleep(1.5) 
+    
+    # 2. الحصول على كوكيز جديدة
+    home_resp = scraper.get(f"{API_BASE}/home?host=moviebox.ph", headers=_get_headers())
+    cookies = home_resp.cookies
+    
+    # 3. الحصول على توكن
+    x_user = home_resp.headers.get("x-user")
+    token = json.loads(x_user).get("token", "") if x_user else ""
+    
+    headers = _get_headers()
+    headers["Authorization"] = f"Bearer {token}"
 
+    try:
+        if method == "POST":
+            resp = scraper.post(url, json=payload, headers=headers, cookies=cookies)
+        else:
+            resp = scraper.get(url, headers=headers, cookies=cookies)
+        
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Upstream API error: {resp.status_code}")
         
@@ -68,13 +63,12 @@ def _make_request(url: str, method: str = "POST", payload: dict = None) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    return "<h1>MovieBox API is Running and Stable</h1>"
+    return "<h1>MovieBox API is Active with Advanced Anti-Ban</h1>"
 
 @app.get("/searchResult")
 async def search_result(keyword: str = Query(..., min_length=1), page: int = 1):
     url = f"{API_BASE}/subject/search"
-    data = _make_request(url, method="POST", payload={"keyword": keyword, "page": page, "perPage": 20})
-    return data
+    return _make_request(url, method="POST", payload={"keyword": keyword, "page": page, "perPage": 20})
 
 @app.get("/home")
 def get_home():
