@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="MovieBox API Pro - Test Without Auth", version="3.1.0")
+app = FastAPI(title="MovieBox API Pro - Manual Cookie Injection", version="3.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
@@ -60,7 +60,8 @@ async def search(q: str = Query(..., min_length=1), page: int = 1):
 
 @app.get("/api/stream/{subject_id}")
 async def get_stream_sources(subject_id: str, detail_path: str, se: int = 1, ep: int = 1):
-    # 1. جلب الدومين
+    # 1. جلب التوكن والدومين
+    token = await _get_bearer_token()
     dom_resp = await client.get(f"{API_BASE}/media-player/get-domain", headers=DEFAULT_HEADERS)
     domain = dom_resp.json().get("data", "https://netfilm.world").rstrip("/")
     
@@ -71,25 +72,32 @@ async def get_stream_sources(subject_id: str, detail_path: str, se: int = 1, ep:
     )
     play_url = f"{domain}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}&streamSignType=1"
     
-    # 3. خطوة الـ Warm-up: زيارة صفحة المشغل أولاً لتعيين الكوكيز
-    await client.get(player_referer, headers=DEFAULT_HEADERS)
+    # 3. خطوة الـ Warm-up: زيارة صفحة المشغل أولاً
+    warmup_resp = await client.get(player_referer, headers=DEFAULT_HEADERS)
     
-    # 4. بناء الهيدرز بدون التوكن (للتحقق من فرضية التعارض) + إضافة Origin
+    # 4. استخراج الكوكيز يدوياً من الـ Warm-up Response
+    cookies = warmup_resp.cookies
+    cookie_header = "; ".join([f"{name}={value}" for name, value in cookies.items()])
+    
+    # 5. بناء الهيدرز مع حقن الكوكيز يدوياً والتوكن
     headers = {
         **DEFAULT_HEADERS,
         "Referer": player_referer,
+        "Authorization": f"Bearer {token}",
+        "Cookie": cookie_header,
         "Origin": "https://netfilm.world",
+        "X-Requested-With": "com.moviebox.pro",
         "Prefers-Color-Scheme": "dark",
         "X-Source": ""
     }
     
-    # 5. الطلب
+    # 6. الطلب الفعلي
     resp = await client.get(play_url, headers=headers)
     
-    logger.info(f"DEBUG: Status Code (No Auth): {resp.status_code}")
+    logger.info(f"DEBUG: Final Status Code: {resp.status_code}")
     
     if resp.status_code != 200:
-        return {"error": "Blocked", "status_code": resp.status_code, "msg": "Request still denied"}
+        return {"error": "Blocked", "status_code": resp.status_code, "msg": "Request denied by server"}
             
     return resp.json().get("data", {})
 
