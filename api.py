@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="MovieBox API Pro",
     description="Full Pure REST API for moviebox.ph — Debugging Enabled",
-    version="2.4.0"
+    version="2.5.0"
 )
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -103,18 +103,29 @@ async def get_stream_sources(subject_id: str, detail_path: str, se: int = 1, ep:
     dom_data = await _make_request(f"{API_BASE}/media-player/get-domain")
     domain = dom_data.get("data", "https://netfilm.world").rstrip("/")
     
-    # بناء Referer دقيق مع إضافة page_from لحل مشكلة 403[span_1](start_span)[span_1](end_span)
+    # 1. جلب التوكن الحالي لضمان إرساله مع طلب البث[span_1](start_span)[span_1](end_span)
+    token = await _get_bearer_token()
+    
+    # 2. بناء Referer مطابق تماماً للطلب الناجح[span_2](start_span)[span_2](end_span)
     player_referer = (
         f"{domain}/spa/videoPlayPage/movies/{detail_path}"
-        f"?id={subject_id}&detailSe={se}&detailEp={ep}&lang=en&type=%2Fmovie%2Fdetail&page_from=home"
+        f"?id={subject_id}&detailSe={se}&detailEp={ep}&lang=en&type=%2Fmovie%2Fdetail&page_from=home_Trending+Drama"
     )
     
+    # 3. بناء رابط الطلب مع المعامل الضروري streamSignType[span_3](start_span)[span_3](end_span)
     play_url = f"{domain}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}&streamSignType=1"
     
+    # 4. دمج التوكن مع الهيدرز للتحقق من المصادقة[span_4](start_span)[span_4](end_span)
+    headers = {
+        **PLAYER_HEADERS, 
+        "Referer": player_referer,
+        "Authorization": f"Bearer {token}"
+    }
+    
     async with httpx.AsyncClient(timeout=25) as client:
-        resp = await client.get(play_url, headers={**PLAYER_HEADERS, "Referer": player_referer})
+        resp = await client.get(play_url, headers=headers)
         
-        # تصحيح: تسجيل حالة الطلب والرد الخام في سجلات Railway
+        # تسجيل الحالة والرد[span_5](start_span)[span_5](end_span)
         logger.info(f"DEBUG: URL Called: {play_url}")
         logger.info(f"DEBUG: Status Code: {resp.status_code}")
         
