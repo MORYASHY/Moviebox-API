@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="MovieBox API Pro",
-    description="Full Pure REST API for moviebox.ph — Updated",
-    version="2.3.0"
+    description="Full Pure REST API for moviebox.ph — Debugging Enabled",
+    version="2.4.0"
 )
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -32,7 +32,6 @@ DEFAULT_HEADERS = {
     "Content-Type": "application/json",
 }
 
-# الهيدرز الخاصة بالمشغل (Player) مع الإضافات التي تطلبها السيرفرات
 PLAYER_HEADERS = {
     **DEFAULT_HEADERS,
     "sec-fetch-site": "same-origin",
@@ -82,11 +81,7 @@ async def _make_request(url: str, method: str = "GET", payload: dict = None) -> 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    return HTMLResponse(content="<h1>MovieBox API Pro - Functional & Updated</h1>")
-
-@app.get("/home")
-async def get_home():
-    return await _make_request(f"{API_BASE}/home?host=moviebox.ph")
+    return HTMLResponse(content="<h1>MovieBox API Pro - Debugging Mode</h1>")
 
 @app.get("/search")
 async def search(q: str = Query(..., min_length=1), page: int = 1):
@@ -108,20 +103,25 @@ async def get_stream_sources(subject_id: str, detail_path: str, se: int = 1, ep:
     dom_data = await _make_request(f"{API_BASE}/media-player/get-domain")
     domain = dom_data.get("data", "https://netfilm.world").rstrip("/")
     
-    # بناء Referer دقيق كما يطلبه السيرفر[span_1](start_span)[span_1](end_span)
+    # بناء Referer دقيق مع إضافة page_from لحل مشكلة 403[span_1](start_span)[span_1](end_span)
     player_referer = (
         f"{domain}/spa/videoPlayPage/movies/{detail_path}"
-        f"?id={subject_id}&detailSe={se}&detailEp={ep}&lang=en&type=%2Fmovie%2Fdetail"
+        f"?id={subject_id}&detailSe={se}&detailEp={ep}&lang=en&type=%2Fmovie%2Fdetail&page_from=home"
     )
     
-    # إضافة streamSignType=1 وهو شرط أساسي للبيانات[span_2](start_span)[span_2](end_span)
     play_url = f"{domain}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}&streamSignType=1"
     
     async with httpx.AsyncClient(timeout=25) as client:
         resp = await client.get(play_url, headers={**PLAYER_HEADERS, "Referer": player_referer})
-        data = resp.json().get("data", {})
         
-    return data
+        # تصحيح: تسجيل حالة الطلب والرد الخام في سجلات Railway
+        logger.info(f"DEBUG: URL Called: {play_url}")
+        logger.info(f"DEBUG: Status Code: {resp.status_code}")
+        
+        if resp.status_code != 200:
+            return {"error": "Blocked", "status_code": resp.status_code, "msg": "Request denied by server"}
+            
+        return resp.json().get("data", {})
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
