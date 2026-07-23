@@ -7,16 +7,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-# إعداد السجلات (Logging)
+# إعداد السجلات
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title="MovieBox API Pro - Final Session",
-    description="Full Pure REST API for moviebox.ph",
-    version="2.8.0"
-)
-
+app = FastAPI(title="MovieBox API Pro - Final Session Warmup", version="3.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
@@ -42,7 +37,6 @@ async def _get_bearer_token() -> str:
         return _bearer_token
     
     try:
-        # استخدام العميل المشترك لجلب التوكن
         resp = await client.get(f"{API_BASE}/home?host=moviebox.ph", headers=DEFAULT_HEADERS)
         x_user = resp.headers.get("x-user")
         if x_user:
@@ -58,13 +52,12 @@ async def _get_bearer_token() -> str:
 
 @app.get("/")
 async def dashboard():
-    return HTMLResponse(content="<h1>MovieBox API Pro - Active & Session Preserved</h1>")
+    return HTMLResponse(content="<h1>MovieBox API Pro - Warmup Mode Active</h1>")
 
 @app.get("/search")
 async def search(q: str = Query(..., min_length=1), page: int = 1):
     url = f"{API_BASE}/subject/search"
     payload = {"keyword": q, "page": page, "perPage": 20}
-    # استخدام التوكن في الـ Headers
     token = await _get_bearer_token()
     headers = {**DEFAULT_HEADERS, "Authorization": f"Bearer {token}"}
     
@@ -89,7 +82,7 @@ async def get_stream_sources(subject_id: str, detail_path: str, se: int = 1, ep:
     dom_resp = await client.get(f"{API_BASE}/media-player/get-domain", headers=DEFAULT_HEADERS)
     domain = dom_resp.json().get("data", "https://netfilm.world").rstrip("/")
     
-    # 3. بناء Referer مطابق تماماً للطلب الناجح (search_detail)
+    # 3. بناء Referer (مطابق للـ curl الخاص بصفحة المشغل)
     player_referer = (
         f"{domain}/spa/videoPlayPage/movies/{detail_path}"
         f"?id={subject_id}&detailSe={se}&detailEp={ep}&lang=en&type=%2Fmovie%2Fdetail&page_from=search_detail"
@@ -97,7 +90,10 @@ async def get_stream_sources(subject_id: str, detail_path: str, se: int = 1, ep:
     
     play_url = f"{domain}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}&streamSignType=1"
     
-    # 4. بناء الهيدرز مع Authorization والـ Referer الصحيح
+    # 4. خطوة الـ Warm-up: زيارة صفحة المشغل أولاً لتعيين الكوكيز
+    await client.get(player_referer, headers=DEFAULT_HEADERS)
+    
+    # 5. الطلب الفعلي مع الهيدرز الصحيحة
     headers = {
         **DEFAULT_HEADERS,
         "Referer": player_referer,
@@ -106,10 +102,9 @@ async def get_stream_sources(subject_id: str, detail_path: str, se: int = 1, ep:
         "X-Source": ""
     }
     
-    # 5. الطلب[span_1](start_span)[span_1](end_span)
     resp = await client.get(play_url, headers=headers)
     
-    logger.info(f"DEBUG: Status Code: {resp.status_code}")
+    logger.info(f"DEBUG: Status Code after warmup: {resp.status_code}")
     
     if resp.status_code != 200:
         return {"error": "Blocked", "status_code": resp.status_code, "msg": "Request denied by server"}
