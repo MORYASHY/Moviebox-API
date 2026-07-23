@@ -7,14 +7,14 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-# إعداد السجلات (Logging) لتسهيل اكتشاف الأخطاء
+# إعداد السجلات (Logging)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="MovieBox API Pro",
     description="Full Pure REST API for moviebox.ph — Updated",
-    version="2.2.0"
+    version="2.3.0"
 )
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -22,7 +22,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
 _bearer_token: str | None = None
 
-# تم تحديث الهيدرز لتطابق ما يستخدمه التطبيق الأصلي
+# الهيدرز الأساسية المحدثة
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 14; TECNO LH8n Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/151.0.7922.47 Mobile Safari/537.36",
     "Referer": "http://moviebox.ph/",
@@ -32,9 +32,12 @@ DEFAULT_HEADERS = {
     "Content-Type": "application/json",
 }
 
+# الهيدرز الخاصة بالمشغل (Player) مع الإضافات التي تطلبها السيرفرات
 PLAYER_HEADERS = {
     **DEFAULT_HEADERS,
     "sec-fetch-site": "same-origin",
+    "Prefers-Color-Scheme": "dark",
+    "X-Source": ""
 }
 
 async def _get_bearer_token() -> str:
@@ -79,18 +82,15 @@ async def _make_request(url: str, method: str = "GET", payload: dict = None) -> 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    # (هنا يتم وضع كود الـ HTML الخاص بالداشبورد كما كان في ملفك الأصلي)
-    return HTMLResponse(content="<h1>MovieBox API Pro is Running</h1>")
+    return HTMLResponse(content="<h1>MovieBox API Pro - Functional & Updated</h1>")
 
 @app.get("/home")
 async def get_home():
-    url = f"{API_BASE}/home?host=moviebox.ph"
-    return await _make_request(url)
+    return await _make_request(f"{API_BASE}/home?host=moviebox.ph")
 
 @app.get("/search")
 async def search(q: str = Query(..., min_length=1), page: int = 1):
     url = f"{API_BASE}/subject/search"
-    # تم تحديث الـ Payload ليكون متوافقاً مع متطلبات السيرفر الجديدة
     payload = {"keyword": q, "page": page, "perPage": 20}
     data = await _make_request(url, method="POST", payload=payload)
     
@@ -103,28 +103,25 @@ async def search(q: str = Query(..., min_length=1), page: int = 1):
     
     return {"query": q, "total": inner.get("pager", {}).get("totalCount", 0), "items": items}
 
-@app.get("/detail/{slug}")
-async def get_movie_detail(slug: str):
-    url = f"{API_BASE}/detail?detailPath={slug}"
-    return await _make_request(url)
-
 @app.get("/api/stream/{subject_id}")
 async def get_stream_sources(subject_id: str, detail_path: str, se: int = 1, ep: int = 1):
     dom_data = await _make_request(f"{API_BASE}/media-player/get-domain")
     domain = dom_data.get("data", "https://netfilm.world").rstrip("/")
     
-    play_url = f"{domain}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}"
+    # بناء Referer دقيق كما يطلبه السيرفر[span_1](start_span)[span_1](end_span)
+    player_referer = (
+        f"{domain}/spa/videoPlayPage/movies/{detail_path}"
+        f"?id={subject_id}&detailSe={se}&detailEp={ep}&lang=en&type=%2Fmovie%2Fdetail"
+    )
+    
+    # إضافة streamSignType=1 وهو شرط أساسي للبيانات[span_2](start_span)[span_2](end_span)
+    play_url = f"{domain}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}&streamSignType=1"
     
     async with httpx.AsyncClient(timeout=25) as client:
-        resp = await client.get(play_url, headers=PLAYER_HEADERS)
+        resp = await client.get(play_url, headers={**PLAYER_HEADERS, "Referer": player_referer})
         data = resp.json().get("data", {})
         
     return data
-
-@app.get("/api/stream/{subject_id}/captions")
-async def get_captions(subject_id: str, detail_path: str, se: int = 1, ep: int = 1):
-    # (تم اختصارها هنا، يمكنك إكمال الكود بالكامل كما كان في ملفك)
-    return {"status": "success", "note": "Function logic remains the same"}
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
