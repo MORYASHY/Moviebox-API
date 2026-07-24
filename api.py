@@ -1,39 +1,63 @@
 import logging
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from curl_cffi.requests import AsyncSession
 
-# إعداد السجلات
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="MovieBox API - Final Fix", version="4.3.0")
+app = FastAPI(title="MovieBox API - Native Browser Clone", version="5.1.0")
 
-# الهيدرز التي أثبتت نجاحها
-ANDROID_HEADERS = {
-    "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 14; TECNO LH8n Build/UP1A.231005.007)",
-    "Connection": "Keep-Alive",
-    "Accept-Encoding": "identity",
-    "Referer": "http://moviebox.ph/"
+# --- الإعدادات (تحديث هذه القيم إذا انتهت صلاحية التوكن) ---
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjMxOTE5NDc4MzI2MDY0ODMwOTYsImF0cCI6MywiZXh0IjoiMTc4MzM4MTYwNCIsImV4cCI6MTc5MTE1NzYwNCwiaWF0IjoxNzgzMzgxMzA0fQ.gtrv_Cuu9MoPj9oqGOq7J5sMULLeV2HDwVjZ9t6jcEY"
+
+COOKIES = {
+    "token": TOKEN,
+    "mb_token": f'"{TOKEN}"',
+    "mb_guest_token": f'"{TOKEN}"'
 }
 
-# جلسة تحاكي متصفح Chrome لضمان TLS Handshake صحيح
-session = AsyncSession(impersonate="chrome110")
+# الهيدرز المطابقة تماماً لطلبك
+HEADERS = {
+    "accept": "application/json",
+    "accept-language": "ar;q=0.8",
+    "authorization": f"Bearer {TOKEN}",
+    "x-client-info": '{"timezone":"Asia/Riyadh"}',
+    "x-vip-restrict": "1",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "sec-ch-ua": '"Not;A=Brand";v="8", "Chromium";v="150", "Brave";v="150"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin"
+}
 
-API_BASE = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
+# جلسة تحاكي متصفح Chrome 110
+session = AsyncSession(impersonate="chrome110")
+API_BASE = "https://netfilm.world/wefeed-h5api-bff"
+
+@app.get("/search")
+async def search(q: str = Query(..., min_length=1), page: int = 1):
+    url = f"{API_BASE}/subject/search"
+    payload = {"keyword": q, "page": page, "perPage": 20}
+    
+    resp = await session.post(url, headers=HEADERS, cookies=COOKIES, json=payload)
+    data = resp.json()
+    
+    inner = data.get("data", {})
+    items = [{
+        "name": sub.get("title"),
+        "slug": sub.get("detailPath"),
+        "subject_id": sub.get("subjectId")
+    } for sub in (inner.get("items") or inner.get("list") or [])]
+    
+    return {"query": q, "total": inner.get("pager", {}).get("totalCount", 0), "items": items}
 
 @app.get("/api/stream/{subject_id}")
-async def get_stream_sources(subject_id: str, detail_path: str, se: str = "1", ep: str = "1"):
-    # 1. جلب الدومين
-    try:
-        dom_resp = await session.get(f"{API_BASE}/media-player/get-domain", headers=ANDROID_HEADERS)
-        domain = dom_resp.json().get("data", "https://netfilm.world").rstrip("/")
-    except Exception as e:
-        return {"error": "Domain fetch failed", "details": str(e)}
-    
-    # 2. بناء الروابط بدقة
-    # ملاحظة: تم دمج المعاملات داخل الرابط لضمان التوافق مع السيرفر
-    play_url = f"{domain}/wefeed-h5api-bff/subject/play"
+async def get_stream_sources(subject_id: str, detail_path: str, se: str = "0", ep: str = "0"):
+    # 1. بناء الرابط
+    base_url = f"{API_BASE}/subject/play"
     params = {
         "subjectId": subject_id,
         "se": se,
@@ -42,22 +66,20 @@ async def get_stream_sources(subject_id: str, detail_path: str, se: str = "1", e
         "streamSignType": "1"
     }
     
-    # 3. خطوة الـ Warm-up (زيارة صفحة المشغل)
-    player_referer = f"{domain}/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&page_from=search_detail"
-    await session.get(player_referer, headers=ANDROID_HEADERS)
+    # 2. بناء الـ Referer الديناميكي
+    referer = f"https://netfilm.world/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&detailSe={se}&detailEp={ep}&lang=en&type=%2Fmovie%2Fdetail"
     
-    # 4. الطلب الفعلي
-    headers = {**ANDROID_HEADERS, "Referer": player_referer, "Origin": "https://netfilm.world"}
-    resp = await session.get(play_url, headers=headers, params=params)
+    # 3. دمج الهيدرز
+    current_headers = {**HEADERS, "referer": referer}
     
-    logger.info(f"DEBUG: Final URL: {resp.url}")
-    logger.info(f"DEBUG: API Response: {resp.text}")
+    # 4. إرسال الطلب
+    resp = await session.get(base_url, headers=current_headers, cookies=COOKIES, params=params)
     
-    # 5. إرجاع النتيجة
-    try:
+    if resp.status_code == 200:
         return resp.json().get("data", {})
-    except:
-        return {"error": "Invalid JSON response from server", "raw": resp.text}
+    else:
+        logger.error(f"Failed with code {resp.status_code}: {resp.text}")
+        return {"error": f"Failed with code {resp.status_code}"}
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000)
