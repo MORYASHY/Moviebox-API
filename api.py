@@ -6,9 +6,10 @@ from curl_cffi.requests import AsyncSession
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="MovieBox API - Native Browser Clone", version="5.1.0")
+app = FastAPI(title="MovieBox API - Final Stable Match", version="5.2.0")
 
-# --- الإعدادات (تحديث هذه القيم إذا انتهت صلاحية التوكن) ---
+# --- الإعدادات ---
+# (إذا توقف الكود عن العمل بعد فترة، قم بتحديث التوكن أدناه من متصفحك)
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjMxOTE5NDc4MzI2MDY0ODMwOTYsImF0cCI6MywiZXh0IjoiMTc4MzM4MTYwNCIsImV4cCI6MTc5MTE1NzYwNCwiaWF0IjoxNzgzMzgxMzA0fQ.gtrv_Cuu9MoPj9oqGOq7J5sMULLeV2HDwVjZ9t6jcEY"
 
 COOKIES = {
@@ -17,7 +18,6 @@ COOKIES = {
     "mb_guest_token": f'"{TOKEN}"'
 }
 
-# الهيدرز المطابقة تماماً لطلبك
 HEADERS = {
     "accept": "application/json",
     "accept-language": "ar;q=0.8",
@@ -55,19 +55,19 @@ async def search(q: str = Query(..., min_length=1), page: int = 1):
     return {"query": q, "total": inner.get("pager", {}).get("totalCount", 0), "items": items}
 
 @app.get("/api/stream/{subject_id}")
-async def get_stream_sources(subject_id: str, detail_path: str, se: str = "0", ep: str = "0"):
-    # 1. بناء الرابط
+async def get_stream_sources(subject_id: str, detail_path: str):
+    # 1. بناء الرابط (params كما في الـ cURL الخاص بك)
     base_url = f"{API_BASE}/subject/play"
     params = {
         "subjectId": subject_id,
-        "se": se,
-        "ep": ep,
+        "se": "0",
+        "ep": "0",
         "detailPath": detail_path,
         "streamSignType": "1"
     }
     
-    # 2. بناء الـ Referer الديناميكي
-    referer = f"https://netfilm.world/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&detailSe={se}&detailEp={ep}&lang=en&type=%2Fmovie%2Fdetail"
+    # 2. بناء الـ Referer (مطابق تماماً لـ cURL: فارغ للـ se و ep)
+    referer = f"https://netfilm.world/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&detailSe=&detailEp=&lang=en&type=%2Fmovie%2Fdetail"
     
     # 3. دمج الهيدرز
     current_headers = {**HEADERS, "referer": referer}
@@ -75,11 +75,13 @@ async def get_stream_sources(subject_id: str, detail_path: str, se: str = "0", e
     # 4. إرسال الطلب
     resp = await session.get(base_url, headers=current_headers, cookies=COOKIES, params=params)
     
+    logger.info(f"DEBUG: Status Code: {resp.status_code}")
+    
     if resp.status_code == 200:
         return resp.json().get("data", {})
     else:
         logger.error(f"Failed with code {resp.status_code}: {resp.text}")
-        return {"error": f"Failed with code {resp.status_code}"}
+        return {"error": f"Failed with code {resp.status_code}", "raw": resp.text}
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000)
